@@ -1,11 +1,17 @@
 """test_todos.py
 Tests automatizados de los 5 endpoints de la API To-Do.
-Se usa TestClient (basado en httpx) y pytest.
 
-Cada test hace un `seed` propio para no depender del orden de ejecución.
-La fixture `client_with_db` sobrescribe `database.DB_PATH` para que
-cada test use un archivo de SQLite temporal único y de este modo
-los tests sean completamente aislados.
+Estrategia:
+    * Se usa :class:`fastapi.testclient.TestClient` (basado en ``httpx``).
+    * Cada test crea su propio ``seed`` para no depender del orden de
+      ejecución ni de estado global compartido.
+    * La fixture :func:`client_with_db` reasigna ``database.DB_PATH``
+      a un archivo temporal único y reinicializa el esquema, de modo
+      que los tests son completamente aislados y se pueden paralelizar.
+
+Ejecución:
+    $ cd backend
+    $ pytest tests/ -v
 """
 import os
 import tempfile
@@ -20,7 +26,14 @@ from app.main import app
 
 @pytest.fixture()
 def client_with_db():
-    """Crea un cliente de pruebas apuntando a una DB SQLite temporal."""
+    """Proporciona un :class:`TestClient` con DB SQLite temporal.
+
+    Yields:
+        TestClient: Cliente listo para hacer peticiones contra la API.
+        La base de datos subyacente es un archivo temporal recién
+        inicializado, y se restaura la ruta original al finalizar
+        el test (incluso si éste falla).
+    """
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     tmp.close()
     original_path = database.DB_PATH
@@ -44,14 +57,14 @@ def client_with_db():
 # ---------- GET /api/todos ----------
 
 def test_list_todos_empty(client_with_db):
-    """GET /api/todos sin tareas -> [] con status 200."""
+    """Vacío: ``GET /api/todos`` devuelve ``[]`` con status 200."""
     response = client_with_db.get("/api/todos")
     assert response.status_code == 200
     assert response.json() == []
 
 
 def test_list_todos_filter_by_status(client_with_db):
-    """GET /api/todos?status=pending/done devuelve solo los registros esperados."""
+    """Filtro: ``GET /api/todos?status=...`` devuelve solo el estado pedido."""
     # Crear 2 pendientes y 1 completada
     t1 = client_with_db.post("/api/todos", json={"title": "A", "description": ""}).json()
     t2 = client_with_db.post("/api/todos", json={"title": "B", "description": ""}).json()
@@ -75,7 +88,7 @@ def test_list_todos_filter_by_status(client_with_db):
 # ---------- GET /api/todos/{id} ----------
 
 def test_get_todo_by_id_ok(client_with_db):
-    """GET /api/todos/{id} devuelve el detalle cuando existe."""
+    """Detalle: ``GET /api/todos/{id}`` devuelve la tarea cuando existe."""
     created = client_with_db.post(
         "/api/todos",
         json={"title": "Leer un libro", "description": "Clean Architecture"},
@@ -92,7 +105,7 @@ def test_get_todo_by_id_ok(client_with_db):
 
 
 def test_get_todo_by_id_404(client_with_db):
-    """GET /api/todos/{id} -> 404 con mensaje claro si no existe."""
+    """Inexistente: ``GET /api/todos/{id}`` devuelve 404 con mensaje claro."""
     response = client_with_db.get("/api/todos/9999")
     assert response.status_code == 404
     detail = response.json()["detail"]
@@ -103,7 +116,7 @@ def test_get_todo_by_id_404(client_with_db):
 # ---------- POST /api/todos ----------
 
 def test_create_todo_with_description(client_with_db):
-    """POST /api/todos con título y descripción -> 201 y datos correctos."""
+    """Crear: ``POST /api/todos`` con título y descripción devuelve 201."""
     response = client_with_db.post(
         "/api/todos",
         json={"title": "Comprar pan", "description": "En la panadería de la esquina"},
@@ -117,7 +130,7 @@ def test_create_todo_with_description(client_with_db):
 
 
 def test_create_todo_without_description(client_with_db):
-    """POST /api/todos sin descripción -> descripción vacía por defecto."""
+    """Crear: ``POST /api/todos`` sin descripción usa cadena vacía por defecto."""
     response = client_with_db.post("/api/todos", json={"title": "Solo título"})
     assert response.status_code == 201
     body = response.json()
@@ -126,13 +139,13 @@ def test_create_todo_without_description(client_with_db):
 
 
 def test_create_todo_missing_title_422(client_with_db):
-    """POST /api/todos sin título -> 422 (validación Pydantic)."""
+    """Validación: ``POST /api/todos`` sin ``title`` -> 422 (Pydantic)."""
     response = client_with_db.post("/api/todos", json={"description": "sin título"})
     assert response.status_code == 422
 
 
 def test_create_todo_empty_title_422(client_with_db):
-    """POST /api/todos con título vacío -> 422 (validación Pydantic)."""
+    """Validación: ``POST /api/todos`` con ``title=""`` -> 422 (Pydantic)."""
     response = client_with_db.post("/api/todos", json={"title": ""})
     assert response.status_code == 422
 
@@ -140,7 +153,7 @@ def test_create_todo_empty_title_422(client_with_db):
 # ---------- PATCH /api/todos/{id} ----------
 
 def test_patch_todo_update_status(client_with_db):
-    """PATCH /api/todos/{id} con status='done' -> el estado cambia."""
+    """Actualizar: ``PATCH`` con ``status='done'`` marca la tarea como hecha."""
     created = client_with_db.post("/api/todos", json={"title": "Pasear al perro"}).json()
 
     response = client_with_db.patch(f"/api/todos/{created['id']}", json={"status": "done"})
@@ -149,7 +162,7 @@ def test_patch_todo_update_status(client_with_db):
 
 
 def test_patch_todo_update_title_description(client_with_db):
-    """PATCH /api/todos/{id} actualiza título y descripción."""
+    """Actualizar: ``PATCH`` parcial sólo modifica los campos enviados."""
     created = client_with_db.post(
         "/api/todos",
         json={"title": "viejo", "description": "desc vieja"},
@@ -167,14 +180,14 @@ def test_patch_todo_update_title_description(client_with_db):
 
 
 def test_patch_todo_404(client_with_db):
-    """PATCH /api/todos/{id} de una tarea inexistente -> 404 claro."""
+    """Inexistente: ``PATCH /api/todos/{id}`` sobre id inexistente -> 404."""
     response = client_with_db.patch("/api/todos/4242", json={"status": "done"})
     assert response.status_code == 404
     assert "4242" in response.json()["detail"]
 
 
 def test_patch_todo_invalid_status_422(client_with_db):
-    """PATCH /api/todos/{id} con status fuera de Literal -> 422."""
+    """Validación: ``PATCH`` con ``status`` fuera de Literal -> 422."""
     created = client_with_db.post("/api/todos", json={"title": "t"}).json()
     response = client_with_db.patch(
         f"/api/todos/{created['id']}", json={"status": "in-progress"}
@@ -185,7 +198,7 @@ def test_patch_todo_invalid_status_422(client_with_db):
 # ---------- DELETE /api/todos/{id} ----------
 
 def test_delete_todo_ok(client_with_db):
-    """DELETE /api/todos/{id} -> 200 y la tarea ya no aparece."""
+    """Eliminar: ``DELETE /api/todos/{id}`` borra y siguientes GET devuelven 404."""
     created = client_with_db.post("/api/todos", json={"title": "Eliminar esto"}).json()
 
     response = client_with_db.delete(f"/api/todos/{created['id']}")
@@ -197,7 +210,7 @@ def test_delete_todo_ok(client_with_db):
 
 
 def test_delete_todo_404(client_with_db):
-    """DELETE /api/todos/{id} de una tarea inexistente -> 404 claro."""
+    """Inexistente: ``DELETE /api/todos/{id}`` sobre id inexistente -> 404."""
     response = client_with_db.delete("/api/todos/7777")
     assert response.status_code == 404
     assert "7777" in response.json()["detail"]
@@ -206,7 +219,7 @@ def test_delete_todo_404(client_with_db):
 # ---------- Health check ----------
 
 def test_health_root(client_with_db):
-    """Endpoint raíz devuelve un OK."""
+    """Health check: ``GET /`` devuelve ``{"status": "ok", ...}``."""
     response = client_with_db.get("/")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"

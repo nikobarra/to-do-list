@@ -1,5 +1,11 @@
 """conftest.py
-Asegura que `app` sea importable al ejecutar pytest desde `backend`.
+Configuración de pytest para el paquete ``backend``.
+
+Pytest descubre los tests desde ``backend/tests`` y necesita que
+``app`` sea importable como paquete de Python. Este archivo añade
+el directorio ``backend`` a ``sys.path`` para que ``import app...``
+funcione tanto al ejecutar ``pytest`` desde ``backend/`` como desde
+la raíz del repositorio.
 """
 import os
 import sys

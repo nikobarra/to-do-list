@@ -31,14 +31,31 @@ TIMEOUT = 5  # segundos
 # Funciones de la API
 # -----------------------------------------------------------------------------
 def _url(path: str = "") -> str:
-    """Devuelve la URL completa a un endpoint de la API."""
+    """Compone la URL absoluta de un endpoint a partir de ``API_BASE``.
+
+    Args:
+        path: Ruta relativa del endpoint (por ejemplo ``"/todos"``).
+            Si está vacía, devuelve la URL base sin barra final.
+
+    Returns:
+        str: URL completa lista para usar con ``requests``.
+    """
     return f"{API_BASE}{path}"
 
 
 @st.cache_data(show_spinner=False)
 def fetch_todos(status_filter: str | None = None) -> list[dict]:
-    """Obtiene las tareas desde la API. Si `status_filter` es None,
-    devuelve todas. Si no, filtra por estado."""
+    """Obtiene las tareas desde la API (con caché de Streamlit).
+
+    Args:
+        status_filter: ``"pending"`` o ``"done"`` para filtrar; ``None``
+            para obtener todas las tareas.
+
+    Returns:
+        list[dict]: Lista de tareas crudas tal y como las devuelve la
+        API. Lista vacía si la API no responde (además se muestra un
+        ``st.error`` con el motivo).
+    """
     params = {"status": status_filter} if status_filter else None
     try:
         resp = requests.get(_url("/todos"), params=params, timeout=TIMEOUT)
@@ -50,7 +67,16 @@ def fetch_todos(status_filter: str | None = None) -> list[dict]:
 
 
 def create_todo(title: str, description: str) -> bool:
-    """Crea una nueva tarea."""
+    """Crea una nueva tarea en la API.
+
+    Args:
+        title: Título de la tarea (obligatorio).
+        description: Descripción opcional.
+
+    Returns:
+        bool: ``True`` si la API confirmó la creación (2xx),
+        ``False`` en caso contrario (y se muestra ``st.error``).
+    """
     try:
         resp = requests.post(
             _url("/todos"),
@@ -65,7 +91,15 @@ def create_todo(title: str, description: str) -> bool:
 
 
 def complete_todo(todo_id: int) -> bool:
-    """Marca una tarea como completada (PATCH status='done')."""
+    """Marca una tarea como completada mediante ``PATCH status='done'``.
+
+    Args:
+        todo_id: Identificador de la tarea a completar.
+
+    Returns:
+        bool: ``True`` si la API confirmó el cambio, ``False`` en caso
+        contrario (con ``st.error``).
+    """
     try:
         resp = requests.patch(
             _url(f"/todos/{todo_id}"),
@@ -80,7 +114,15 @@ def complete_todo(todo_id: int) -> bool:
 
 
 def delete_todo(todo_id: int) -> bool:
-    """Elimina una tarea."""
+    """Elimina una tarea a través del endpoint ``DELETE``.
+
+    Args:
+        todo_id: Identificador de la tarea a eliminar.
+
+    Returns:
+        bool: ``True`` si la API confirmó la eliminación, ``False``
+        en caso contrario (con ``st.error``).
+    """
     try:
         resp = requests.delete(_url(f"/todos/{todo_id}"), timeout=TIMEOUT)
         resp.raise_for_status()

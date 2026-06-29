@@ -1,6 +1,15 @@
 """models.py
-Modelos de validación de datos con Pydantic para la API.
-Define los esquemas de entrada y salida para los endpoints.
+Esquemas de validación y serialización de la API, basados en Pydantic v2.
+
+Se separan tres responsabilidades:
+
+- :class:`TodoCreate`: cuerpo de entrada para ``POST /api/todos``.
+- :class:`TodoUpdate`: cuerpo de entrada para ``PATCH /api/todos/{id}``.
+- :class:`TodoResponse`: forma de las respuestas JSON.
+
+Las validaciones de longitud y los valores permitidos para ``status``
+se declaran aquí para que FastAPI genere automáticamente errores
+``422 Unprocessable Entity`` con detalle por campo.
 """
 from datetime import datetime
 from typing import Optional, Literal
@@ -8,7 +17,13 @@ from pydantic import BaseModel, Field, ConfigDict
 
 
 class TodoBase(BaseModel):
-    """Esquema base con los campos comunes de una tarea."""
+    """Esquema base con los campos compartidos por creación y respuesta.
+
+    Attributes:
+        title: Título de la tarea. Obligatorio, entre 1 y 200 caracteres.
+        description: Descripción opcional, hasta 1000 caracteres.
+            Por defecto cadena vacía.
+    """
 
     title: str = Field(
         ...,
@@ -26,13 +41,26 @@ class TodoBase(BaseModel):
 
 
 class TodoCreate(TodoBase):
-    """Esquema para crear una tarea. Solo título y descripción."""
-    pass
+    """Esquema de entrada para crear una tarea (``POST /api/todos``).
+
+    Solo expone los campos editables por el cliente en el momento de
+    creación (``title`` y ``description``); ``id``, ``status`` y
+    ``created_at`` los asigna el servidor.
+    """
 
 
 class TodoUpdate(BaseModel):
-    """Esquema para actualizar una tarea. Todos los campos son opcionales
-    porque PATCH permite actualizaciones parciales."""
+    """Esquema de entrada para actualizar una tarea (``PATCH`` parcial).
+
+    Todos los campos son opcionales para permitir actualizaciones
+    parciales: se modifica únicamente lo que el cliente envíe.
+
+    Attributes:
+        title: Nuevo título (1-200 caracteres). Opcional.
+        description: Nueva descripción (0-1000 caracteres). Opcional.
+        status: Nuevo estado. Sólo se aceptan los literales
+            ``"pending"`` y ``"done"``.
+    """
 
     title: Optional[str] = Field(
         default=None,
@@ -52,7 +80,13 @@ class TodoUpdate(BaseModel):
 
 
 class TodoResponse(TodoBase):
-    """Esquema de respuesta con todos los campos de la tarea."""
+    """Esquema de salida devuelto por todos los endpoints de la API.
+
+    Attributes:
+        id: Identificador único asignado por SQLite al insertar.
+        status: Estado actual (``"pending"`` o ``"done"``).
+        created_at: Fecha de creación en formato ISO 8601.
+    """
 
     id: int = Field(..., description="Identificador único de la tarea")
     status: Literal["pending", "done"] = Field(
@@ -68,7 +102,22 @@ class TodoResponse(TodoBase):
 
 
 def todo_from_row(row: dict) -> TodoResponse:
-    """Convierte una fila de la base de datos a un TodoResponse."""
+    """Convierte una fila cruda de la base de datos en un :class:`TodoResponse`.
+
+    Args:
+        row: Diccionario con las claves ``id``, ``title``, ``description``,
+            ``status`` y ``created_at`` tal y como las devuelve
+            :mod:`app.database`.
+
+    Returns:
+        TodoResponse: Instancia validada y lista para serializar a JSON.
+
+    Note:
+        Si ``created_at`` llega como :class:`datetime.datetime` (cuando
+        se consulta desde un cursor SQLite en ciertos modos), se
+        convierte a su representación ISO 8601 para mantener la
+        consistencia del contrato de la API, que siempre expone strings.
+    """
     created_at = row["created_at"]
     if isinstance(created_at, datetime):
         created_at = created_at.isoformat()
